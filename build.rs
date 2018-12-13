@@ -7,15 +7,15 @@ use env_perm;
 use reqwest;
 
 fn main() {
-    match env::var("VULKAN_SDK2") {
+    match env::var("VULKAN_SDK") {
         // Vulkan SDK is installed, do nothing
         Ok(_) => return,
         // Install Vulkan SDK
         Err(_) =>(),
     }
     let mut dl_dir = dirs::download_dir().expect("No download dir");
-    //let address = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
-    let address = "http://0.0.0.0:8000/vulkan-sdk.tar.gz";
+    let address = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
+    //let address = "http://0.0.0.0:8000/vulkan-sdk.tar.gz";
     let mut response = reqwest::get(address).expect("Failed to download sdk");
 
     let mut file_name: String;
