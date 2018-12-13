@@ -8,10 +8,7 @@ use env_perm;
 use reqwest;
 use tempdir::TempDir;
 
-// Local testing address
-const ADDRESS: &'static str = "http://0.0.0.0:8000/vulkan-sdk.tar.gz";
-// Real address
-//const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
+const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
 
 struct SDK {
     name: String,
