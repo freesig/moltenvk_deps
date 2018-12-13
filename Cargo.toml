@@ -5,9 +5,9 @@ authors = ["Tom Gowan <s3549186@student.rmit.edu.au>"]
 edition = "2018"
 
 [build-dependencies]
-curl = "0.4"
 env_perm = { path = "../env_perm" }
 dirs = "1.0"
+reqwest ="0.9"
 
 [dependencies]
 
