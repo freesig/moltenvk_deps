@@ -5,9 +5,10 @@ authors = ["Tom Gowan <s3549186@student.rmit.edu.au>"]
 edition = "2018"
 
 [build-dependencies]
-env_perm = { path = "../env_perm" }
+env_perm = { git = "https://github.com/freesig/env_perm.git" }
 dirs = "1.0"
-reqwest ="0.9"
+reqwest = "0.9"
+tempdir = "0.3"
 
 [dependencies]
 
