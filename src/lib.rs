@@ -105,6 +105,15 @@ fn set_env_vars() -> io::Result<()> {
     Ok(())
 }
 
+/// This will check if you have the
+/// Vulkan SDK installed by checking
+/// if the VULKAN_SDK env var is set.
+/// If it's set then nothing will happen.
+/// If it is not set then it will download
+/// the latest SDK from lunarg.com and install
+/// it at home/.vulkan_sdk.
+/// It will then set the required environmnet 
+/// variables.
 pub fn check_or_install() {
     match env::var("VULKAN_SDK") {
         // Vulkan SDK is installed, do nothing
