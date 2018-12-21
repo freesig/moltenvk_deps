@@ -1,7 +1,7 @@
 [package]
 name = "moltenvk_deps"
 version = "0.1.0"
-authors = ["Tom Gowan <s3549186@student.rmit.edu.au>"]
+authors = ["Tom Gowan <tomrgowan@gmail.com>"]
 edition = "2018"
 
 [dependencies]
@@ -9,4 +9,3 @@ env_perm = { git = "https://github.com/freesig/env_perm.git" }
 dirs = "1.0"
 curl = "0.4"
 tempdir = "0.3"
-
