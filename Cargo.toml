@@ -7,6 +7,6 @@ edition = "2018"
 [dependencies]
 env_perm = { git = "https://github.com/freesig/env_perm.git" }
 dirs = "1.0"
-reqwest = "0.9"
+curl = "0.4"
 tempdir = "0.3"
 

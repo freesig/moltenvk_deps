@@ -5,8 +5,10 @@ use std::io::{self, copy};
 use std::path::PathBuf;
 use dirs;
 use env_perm;
-use reqwest;
+use curl;
+use curl::easy::Easy; 
 use tempdir::TempDir;
+use std::time::Duration;
 
 const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
 
@@ -21,20 +23,29 @@ struct SDK {
 impl SDK {
     fn download() -> io::Result<Self> {
         let tmp_dir = TempDir::new("sdk_download").expect("Failed to create temp directory");
-        let mut response = reqwest::get(ADDRESS).expect("Failed to download sdk");
+        let mut handle = Easy::new();
+        let mut response = Vec::new();
+        handle.timeout(Duration::from_secs(0)).expect("Set timeout failed");
+        handle.url(ADDRESS).expect("Failed to download sdk");
+        {
+            let mut transfer = handle.transfer();
+            transfer.write_function(|data| {
+                let len = data.len();
+                response.extend_from_slice(data);
+                Ok(len)
+            }).expect("Failed to create write function");
+            transfer.perform().expect("Failed to perform transfer");
+        }
         let (file, downloaded) = {
-            let file_name = response
-                .url()
-                .path_segments()
-                .and_then(|segments| segments.last())
-                .and_then(|name| if name.is_empty() { None } else { Some(name) })
-                .unwrap_or("vulkansdk.tar.gz");
+            let file_name = ADDRESS.split('/')
+                .last()
+                .unwrap_or("vulkan-sdk.tar.gz");
 
             let path = tmp_dir.path().join(&file_name);
             (File::create(&path),
              SDK{ name: file_name.into(), path, _tmp_dir: tmp_dir })
         };
-        file.and_then(|mut dest| copy(&mut response, &mut dest))
+        file.and_then(|mut dest| copy(&mut &response[..], &mut dest))
             .and_then(move |_| Ok(downloaded) )
     }
 
@@ -53,7 +64,6 @@ impl SDK {
             .arg(&sdk_dir)
             .output()
             .expect("failed to execute process");
-        eprintln!("command: {:?}", r);
 
         // Move the downloaded SDK there
         let r = Command::new("mv")
@@ -61,7 +71,6 @@ impl SDK {
             .arg(&sdk_dir)
             .output()
             .expect("failed to execute process");
-        eprintln!("command: {:?}", r);
 
         // Untar the contents
         let r = Command::new("tar")
@@ -72,14 +81,12 @@ impl SDK {
             .arg("--strip-components=1")
             .output()
             .expect("failed to execute process");
-        eprintln!("command: {:?}", r);
 
         // Remove the empty dirctory
         let r = Command::new("rm")
             .arg(format!("{}/{}", sdk_dir.display(), name))
             .output()
             .expect("failed to execute process");
-        eprintln!("command: {:?}", r);
         Ok(())
     }
 }
