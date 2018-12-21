@@ -60,20 +60,20 @@ impl SDK {
         sdk_dir.push(".vulkan_sdk");
 
         // Make the vulkan sdk directory
-        let r = Command::new("mkdir")
+        Command::new("mkdir")
             .arg(&sdk_dir)
             .output()
             .expect("failed to execute process");
 
         // Move the downloaded SDK there
-        let r = Command::new("mv")
+        Command::new("mv")
             .arg(&dl_path)
             .arg(&sdk_dir)
             .output()
             .expect("failed to execute process");
 
         // Untar the contents
-        let r = Command::new("tar")
+        Command::new("tar")
             .arg("-xzf")
             .arg(format!("{}/{}", sdk_dir.display(), name))
             .arg("-C")
@@ -83,7 +83,7 @@ impl SDK {
             .expect("failed to execute process");
 
         // Remove the empty dirctory
-        let r = Command::new("rm")
+        Command::new("rm")
             .arg(format!("{}/{}", sdk_dir.display(), name))
             .output()
             .expect("failed to execute process");

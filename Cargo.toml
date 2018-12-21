@@ -3,9 +3,15 @@ name = "moltenvk_deps"
 version = "0.1.0"
 authors = ["Tom Gowan <tomrgowan@gmail.com>"]
 edition = "2018"
+description = "Downloads and installs MoltenVK / VulkanSDK for macOS"
+documentation = "https://docs.rs/moltenvk_deps"
+repository = "https://github.com/freesig/moltenvk_deps"
+readme = "README.md"
+license = "MIT"
+keywords = ["vulkan", "vulkansdk", "moltenvk", "macos"]
 
 [dependencies]
-env_perm = { git = "https://github.com/freesig/env_perm.git" }
+env_perm = "0.1" 
 dirs = "1.0"
 curl = "0.4"
 tempdir = "0.3"
