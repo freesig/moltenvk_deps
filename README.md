@@ -7,8 +7,10 @@ This allows Macos users to automatically get the requirements to use [Volkano-rs
 This crate will check you have the Vulkan SDK from [Lunar](https://vulkan.lunarg.com/sdk/home) installed 
 and the required environment variables set.
 
-If you don't have them it will download and upack sdk.
-Then it will set the environment variables permanently in your `.profile` or `.bash_profile`
+If you don't have them it will download and unpack sdk.
+Then it will set the environment variables permanently in your `.bash_profile`.
+If you are not using bash as your shell you will need to manually
+put the following environment variables in the correct place.
 
 __It will set:__
 ```
