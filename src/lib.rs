@@ -24,6 +24,7 @@ impl SDK {
     fn download() -> io::Result<Self> {
         let tmp_dir = TempDir::new("sdk_download").expect("Failed to create temp directory");
         let mut handle = Easy::new();
+        handle.progress(true).expect("Failed to set progress bar");
         let mut response = Vec::new();
         handle.timeout(Duration::from_secs(0)).expect("Set timeout failed");
         handle.url(ADDRESS).expect("Failed to download sdk");
@@ -87,11 +88,14 @@ impl SDK {
             .arg(format!("{}/{}", sdk_dir.display(), name))
             .output()
             .expect("failed to execute process");
+        
+        println!("The Vulkan SDK was successfully installed at {}", sdk_dir.display());
         Ok(())
     }
 }
 
 fn set_env_vars() -> io::Result<()> {
+    println!("Setting environment variables");
     //export VULKAN_SDK=$HOME/vulkan_sdk/macOS
     env_perm::check_or_set("VULKAN_SDK", r#""$HOME/.vulkan_sdk/macOS""#)?;
     //export PATH=$VULKAN_SDK/bin:$PATH
@@ -102,7 +106,92 @@ fn set_env_vars() -> io::Result<()> {
     env_perm::check_or_set("VK_ICD_FILENAMES", r#""$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json""#)?;
     //export VK_LAYER_PATH=$VULKAN_SDK/etc/vulkan/explicit_layer.d
     env_perm::check_or_set("VK_LAYER_PATH", r#""$VULKAN_SDK/etc/vulkan/explicit_layer.d""#)?;
+    set_temp_envs();
     Ok(())
+}
+
+fn set_temp_envs() {
+    //export VULKAN_SDK=$HOME/vulkan_sdk/macOS
+    let mut vulkan_sdk = dirs::home_dir().expect("Failed to find home directory");
+    vulkan_sdk.push(".vulkan_sdk");
+    vulkan_sdk.push("macOS");
+    env::set_var("VULKAN_SDK", vulkan_sdk.clone().into_os_string());
+
+    //export PATH=$VULKAN_SDK/bin:$PATH
+    let mut bin = vulkan_sdk.clone();
+    bin.push("bin");
+    if let Some(path) = env::var_os("PATH") {
+        let mut paths = env::split_paths(&path).collect::<Vec<_>>();
+        paths.push(bin);
+        let new_path = env::join_paths(paths).expect("Failed to append to PATH");
+        env::set_var("PATH", &new_path);
+    }
+    
+    //export DYLD_LIBRARY_PATH=$VULKAN_SDK/lib:$DYLD_LIBRARY_PATH
+    let mut lib = vulkan_sdk.clone();
+    lib.push("lib");
+    let lib_path = lib.clone();
+    if let Some(dyld) = env::var_os("DYLD_LIBRARY_PATH") {
+        let mut libs = env::split_paths(&dyld).collect::<Vec<_>>();
+        libs.push(lib);
+        let new_dyld = env::join_paths(libs).expect("Failed to append to DYLD_LIBRARY_PATH");
+        env::set_var("DYLD_LIBRARY_PATH", &new_dyld);
+    }
+
+    // Temporary tell vulkano where the lib is
+    env::set_var("VULKAN_LIB_PATH", lib_path.into_os_string());
+    
+    let mut icd = vulkan_sdk.clone();
+    icd.push("etc");
+    icd.push("vulkan");
+    icd.push("icd.d");
+    icd.push("MoltenVK_icd.json");
+    //export VK_ICD_FILENAMES=$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json
+    env::set_var("VK_ICD_FILENAMES", icd.into_os_string());
+    
+    //export VK_LAYER_PATH=$VULKAN_SDK/etc/vulkan/explicit_layer.d
+    let mut layer = vulkan_sdk.clone();
+    layer.push("etc");
+    layer.push("vulkan");
+    layer.push("explicit_layer.d");
+    env::set_var("VK_LAYER_PATH", layer.into_os_string());
+}
+
+fn check_sdk_dir() -> bool {
+    let mut sdk_dir = dirs::home_dir().expect("Failed to find home directory");
+    sdk_dir.push(".vulkan_sdk");
+    sdk_dir.exists()
+}
+
+fn remove_old_sdk() -> io::Result<()> {
+    let mut vulkan_sdk = dirs::home_dir().expect("Failed to find home directory");
+    vulkan_sdk.push(".vulkan_sdk");
+    if vulkan_sdk.exists() {
+        // Move the downloaded SDK there
+        Command::new("rm")
+            .arg("-fr")
+            .arg(&vulkan_sdk)
+            .output()
+            .expect("failed to execute process");
+        Ok(())
+    } else {
+        println!("The SDK is not installed in the default location:");
+        println!("{}", vulkan_sdk.display());
+        println!("Automatic updates are only supported for the default location");
+        Err(io::Error::new(io::ErrorKind::NotFound, "Directory missing"))
+    }
+}
+
+fn update_sdk() {
+    println!("Updating Vulkan SDK. This may take some time. Grab another coffer :)");
+    match remove_old_sdk() {
+        Ok(_) => {
+            let sdk = SDK::download().expect("Downloading the Vulkan SDK failed");
+            sdk.unpack().expect("Failed to unpack the Vulkan SDK");
+            println!("Installation complete :D");
+        },
+        Err(_) => println!("SDK not updated"),
+    }
 }
 
 /// This will check if you have the
@@ -115,6 +204,9 @@ fn set_env_vars() -> io::Result<()> {
 /// It will then set the required environmnet 
 /// variables.
 pub fn check_or_install() {
+    if env::var_os("UPDATE_VULKAN_SDK").is_some() {
+        update_sdk();
+    }
     match env::var("VULKAN_SDK") {
         // Vulkan SDK is installed, do nothing
         Ok(_) => return,
@@ -122,8 +214,32 @@ pub fn check_or_install() {
         Err(_) =>(),
     }
 
+    if check_sdk_dir() {
+        set_temp_envs();
+        return;
+    }
+
+    println!("Vulkano requires the Vulkan SDK to use MoltenVK for MacOS");
+    println!("Would you like to automatically install it now? (Y/n)");
+    
+    loop {
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer).expect("failed to read input");
+        answer.pop();
+        match answer.as_str() {
+            "Y" => break,
+            "n" => return,
+            _ => println!("Invalid answer, enter 'Y' to install or 'n' to quit"),
+        }
+    }
+
+    println!("Downloading and installing Vulkan SDK, This may take some time. Grab a coffee :)");
+    println!("This will only need to happen once.");
+
     let sdk = SDK::download().expect("Downloading the Vulkan SDK failed");
     sdk.unpack().expect("Failed to unpack the Vulkan SDK");
 
     set_env_vars().expect("Failed to set the required environment variables");
+    println!("Installation complete :D");
+    println!("To update run 'UPDATE_VULKAN_SDK=1 cargo run`");
 }
