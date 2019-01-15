@@ -163,46 +163,12 @@ fn check_sdk_dir() -> bool {
     sdk_dir.exists()
 }
 
-fn is_default_dir(vulkan_sdk: String) -> bool {
+fn is_default_dir_and_empty(vulkan_sdk: String) -> bool {
     let mut default_dir = dirs::home_dir().expect("Failed to find home directory");
     default_dir.push(".vulkan_sdk");
     default_dir.push("macOS");
-    vulkan_sdk == default_dir.to_string_lossy()
+    vulkan_sdk == default_dir.to_string_lossy() && !default_dir.exists()
 }
-
-/*
-
-fn remove_old_sdk() -> io::Result<()> {
-    let mut vulkan_sdk = dirs::home_dir().expect("Failed to find home directory");
-    vulkan_sdk.push(".vulkan_sdk");
-    if vulkan_sdk.exists() {
-        // Move the downloaded SDK there
-        Command::new("rm")
-            .arg("-fr")
-            .arg(&vulkan_sdk)
-            .output()
-            .expect("failed to execute process");
-        Ok(())
-    } else {
-        println!("The SDK is not installed in the default location:");
-        println!("{}", vulkan_sdk.display());
-        println!("Automatic updates are only supported for the default location");
-        Err(io::Error::new(io::ErrorKind::NotFound, "Directory missing"))
-    }
-}
-
-fn update_sdk() {
-    println!("Updating Vulkan SDK. This may take some time. Grab another coffer :)");
-    match remove_old_sdk() {
-        Ok(_) => {
-            let sdk = SDK::download().expect("Downloading the Vulkan SDK failed");
-            sdk.unpack().expect("Failed to unpack the Vulkan SDK");
-            println!("Installation complete :D");
-        },
-        Err(_) => println!("SDK not updated"),
-    }
-}
-*/
 
 /// This will check if you have the
 /// Vulkan SDK installed by checking
@@ -214,15 +180,12 @@ fn update_sdk() {
 /// It will then set the required environmnet 
 /// variables.
 pub fn check_or_install() {
-    /*
-    if env::var_os("UPDATE_VULKAN_SDK").is_some() {
-        update_sdk();
-    }
-    */
     match env::var("VULKAN_SDK") {
         // Vulkan SDK is installed, do nothing
         Ok(v) => {
-            if is_default_dir(v) && check_sdk_dir() {
+            if is_default_dir_and_empty(v) {
+                // Install
+            } else {
                 return;
             }
         },
