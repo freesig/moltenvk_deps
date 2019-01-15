@@ -163,6 +163,15 @@ fn check_sdk_dir() -> bool {
     sdk_dir.exists()
 }
 
+fn is_default_dir(vulkan_sdk: String) -> bool {
+    let mut default_dir = dirs::home_dir().expect("Failed to find home directory");
+    default_dir.push(".vulkan_sdk");
+    default_dir.push("macOS");
+    vulkan_sdk == default_dir.to_string_lossy()
+}
+
+/*
+
 fn remove_old_sdk() -> io::Result<()> {
     let mut vulkan_sdk = dirs::home_dir().expect("Failed to find home directory");
     vulkan_sdk.push(".vulkan_sdk");
@@ -193,6 +202,7 @@ fn update_sdk() {
         Err(_) => println!("SDK not updated"),
     }
 }
+*/
 
 /// This will check if you have the
 /// Vulkan SDK installed by checking
@@ -204,19 +214,25 @@ fn update_sdk() {
 /// It will then set the required environmnet 
 /// variables.
 pub fn check_or_install() {
+    /*
     if env::var_os("UPDATE_VULKAN_SDK").is_some() {
         update_sdk();
     }
+    */
     match env::var("VULKAN_SDK") {
         // Vulkan SDK is installed, do nothing
-        Ok(_) => return,
+        Ok(v) => {
+            if is_default_dir(v) && check_sdk_dir() {
+                return;
+            }
+        },
         // Install Vulkan SDK
-        Err(_) =>(),
-    }
-
-    if check_sdk_dir() {
-        set_temp_envs();
-        return;
+        Err(_) =>{
+            if check_sdk_dir() {
+                set_temp_envs();
+                return;
+            }
+        },
     }
 
     println!("Vulkano requires the Vulkan SDK to use MoltenVK for MacOS");
@@ -234,7 +250,6 @@ pub fn check_or_install() {
     }
 
     println!("Downloading and installing Vulkan SDK, This may take some time. Grab a coffee :)");
-    println!("This will only need to happen once.");
 
     let sdk = SDK::download().expect("Downloading the Vulkan SDK failed");
     sdk.unpack().expect("Failed to unpack the Vulkan SDK");
