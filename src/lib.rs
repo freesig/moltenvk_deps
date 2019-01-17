@@ -110,6 +110,8 @@ fn set_env_vars() -> io::Result<()> {
     Ok(())
 }
 
+// Sets the environment variables temporarily because the
+// use has not source'd the .bash_profile yet.
 fn set_temp_envs() {
     //export VULKAN_SDK=$HOME/vulkan_sdk/macOS
     let mut vulkan_sdk = dirs::home_dir().expect("Failed to find home directory");
@@ -139,6 +141,8 @@ fn set_temp_envs() {
     }
 
     // Temporary tell vulkano where the lib is
+    // This is necessary because shared_library does not
+    // receive temporary environment variables.
     env::set_var("VULKAN_LIB_PATH", lib_path.into_os_string());
     
     let mut icd = vulkan_sdk.clone();
@@ -157,12 +161,15 @@ fn set_temp_envs() {
     env::set_var("VK_LAYER_PATH", layer.into_os_string());
 }
 
+// Is the default sdk directory empty
 fn check_sdk_dir() -> bool {
     let mut sdk_dir = dirs::home_dir().expect("Failed to find home directory");
     sdk_dir.push(".vulkan_sdk");
     sdk_dir.exists()
 }
 
+// Is the VULKAN_SDK variable pointing at
+// the default location and is that location empty.
 fn is_default_dir_and_empty(vulkan_sdk: String) -> bool {
     let mut default_dir = dirs::home_dir().expect("Failed to find home directory");
     default_dir.push(".vulkan_sdk");
@@ -181,20 +188,25 @@ fn is_default_dir_and_empty(vulkan_sdk: String) -> bool {
 /// variables.
 pub fn check_or_install() {
     match env::var("VULKAN_SDK") {
-        // Vulkan SDK is installed, do nothing
+        // VULKAN_SDK is set 
         Ok(v) => {
             if is_default_dir_and_empty(v) {
-                // Install
+                // Install as the directory is empty
             } else {
+                // VULKAN_SDK is set to a non-default or directory is not empty.
+                // Return silently.
                 return;
             }
         },
-        // Install Vulkan SDK
         Err(_) =>{
+            // Environment Variables are not set
+            // but might just need to be set temporarily.
             if check_sdk_dir() {
+                // Set env vars and return silently.
                 set_temp_envs();
                 return;
             }
+            // Vulkan SDK needs to be installed
         },
     }
 
@@ -219,5 +231,5 @@ pub fn check_or_install() {
 
     set_env_vars().expect("Failed to set the required environment variables");
     println!("Installation complete :D");
-    println!("To update run 'UPDATE_VULKAN_SDK=1 cargo run`");
+    println!("To update simply remove the '~/.vulkan_sdk' directory");
 }
