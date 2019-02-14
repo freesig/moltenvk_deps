@@ -21,21 +21,22 @@ struct SDK {
 }
 
 impl SDK {
-    fn download() -> io::Result<Self> {
-        let tmp_dir = TempDir::new("sdk_download").expect("Failed to create temp directory");
+    fn download() -> Result<Self, Error> {
+        let tmp_dir = TempDir::new("sdk_download").map_err(|e|Error::IO(e))?;
         let mut handle = Easy::new();
-        handle.progress(true).expect("Failed to set progress bar");
         let mut response = Vec::new();
-        handle.timeout(Duration::from_secs(0)).expect("Set timeout failed");
-        handle.url(ADDRESS).expect("Failed to download sdk");
+        handle.timeout(Duration::from_secs(0))
+            .map_err(|_|Error::FailedCurlSetup("Set timeout failed".to_string()))?;
+        handle.url(ADDRESS)
+            .map_err(|_|Error::FailedSdkDownload)?;
         {
             let mut transfer = handle.transfer();
             transfer.write_function(|data| {
                 let len = data.len();
                 response.extend_from_slice(data);
                 Ok(len)
-            }).expect("Failed to create write function");
-            transfer.perform().expect("Failed to perform transfer");
+            }).map_err(|_|Error::FailedCurlSetup("Failed to create write function".to_string()))?;
+            transfer.perform().map_err(|_|Error::FailedSdkDownload)?;
         }
         let (file, downloaded) = {
             let file_name = ADDRESS.split('/')
@@ -48,15 +49,17 @@ impl SDK {
         };
         file.and_then(|mut dest| copy(&mut &response[..], &mut dest))
             .and_then(move |_| Ok(downloaded) )
+            .map_err(|e| Error::IO(e))
     }
 
-    fn unpack(self) -> io::Result<()> {
+    fn unpack(self) -> Result<(), Error> {
         let Self {
             name,
             path: dl_path,
             ..
         } = self;
-        let home = dirs::home_dir().ok_or(io::ErrorKind::NotFound)?;
+        let home = dirs::home_dir()
+            .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
         let mut sdk_dir = home.clone();
         sdk_dir.push(".vulkan_sdk");
 
@@ -64,14 +67,14 @@ impl SDK {
         Command::new("mkdir")
             .arg(&sdk_dir)
             .output()
-            .expect("failed to execute process");
+            .map_err(|_|Error::FailedCommand("Failed to mkdir".to_string()))?;
 
         // Move the downloaded SDK there
         Command::new("mv")
             .arg(&dl_path)
             .arg(&sdk_dir)
             .output()
-            .expect("failed to execute process");
+            .map_err(|_|Error::FailedCommand("Failed to mv".to_string()))?;
 
         // Untar the contents
         Command::new("tar")
@@ -81,40 +84,46 @@ impl SDK {
             .arg(&sdk_dir)
             .arg("--strip-components=1")
             .output()
-            .expect("failed to execute process");
+            .map_err(|_|Error::FailedCommand("Failed to tar".to_string()))?;
 
         // Remove the empty dirctory
         Command::new("rm")
             .arg(format!("{}/{}", sdk_dir.display(), name))
             .output()
-            .expect("failed to execute process");
+            .map_err(|_|Error::FailedCommand("Failed to rm".to_string()))?;
         
         println!("The Vulkan SDK was successfully installed at {}", sdk_dir.display());
         Ok(())
     }
 }
 
-fn set_env_vars() -> io::Result<()> {
+fn set_env_vars() -> Result<(), Error> {
     println!("Setting environment variables");
     //export VULKAN_SDK=$HOME/vulkan_sdk/macOS
-    env_perm::check_or_set("VULKAN_SDK", r#""$HOME/.vulkan_sdk/macOS""#)?;
+    env_perm::check_or_set("VULKAN_SDK", r#""$HOME/.vulkan_sdk/macOS""#)
+        .map_err(|e|Error::IO(e))?;
     //export PATH=$VULKAN_SDK/bin:$PATH
-    env_perm::append("PATH", "$VULKAN_SDK/bin")?;
+    env_perm::append("PATH", "$VULKAN_SDK/bin")
+        .map_err(|e|Error::IO(e))?;
     //export DYLD_LIBRARY_PATH=$VULKAN_SDK/lib:$DYLD_LIBRARY_PATH
-    env_perm::append("DYLD_LIBRARY_PATH", "$VULKAN_SDK/lib")?;
+    env_perm::append("DYLD_LIBRARY_PATH", "$VULKAN_SDK/lib")
+        .map_err(|e|Error::IO(e))?;
     //export VK_ICD_FILENAMES=$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json
-    env_perm::check_or_set("VK_ICD_FILENAMES", r#""$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json""#)?;
+    env_perm::check_or_set("VK_ICD_FILENAMES", r#""$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json""#)
+        .map_err(|e|Error::IO(e))?;
     //export VK_LAYER_PATH=$VULKAN_SDK/etc/vulkan/explicit_layer.d
-    env_perm::check_or_set("VK_LAYER_PATH", r#""$VULKAN_SDK/etc/vulkan/explicit_layer.d""#)?;
-    set_temp_envs();
+    env_perm::check_or_set("VK_LAYER_PATH", r#""$VULKAN_SDK/etc/vulkan/explicit_layer.d""#)
+        .map_err(|e|Error::IO(e))?;
+    set_temp_envs()?;
     Ok(())
 }
 
 // Sets the environment variables temporarily because the
 // use has not source'd the .bash_profile yet.
-fn set_temp_envs() {
+fn set_temp_envs() -> Result<(), Error> {
     //export VULKAN_SDK=$HOME/vulkan_sdk/macOS
-    let mut vulkan_sdk = dirs::home_dir().expect("Failed to find home directory");
+    let mut vulkan_sdk = dirs::home_dir()
+            .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
     vulkan_sdk.push(".vulkan_sdk");
     vulkan_sdk.push("macOS");
     env::set_var("VULKAN_SDK", vulkan_sdk.clone().into_os_string());
@@ -125,7 +134,8 @@ fn set_temp_envs() {
     if let Some(path) = env::var_os("PATH") {
         let mut paths = env::split_paths(&path).collect::<Vec<_>>();
         paths.push(bin);
-        let new_path = env::join_paths(paths).expect("Failed to append to PATH");
+        let new_path = env::join_paths(paths)
+            .map_err(|_|Error::FailedSetEnvVar)?;
         env::set_var("PATH", &new_path);
     }
     
@@ -136,7 +146,8 @@ fn set_temp_envs() {
     if let Some(dyld) = env::var_os("DYLD_LIBRARY_PATH") {
         let mut libs = env::split_paths(&dyld).collect::<Vec<_>>();
         libs.push(lib);
-        let new_dyld = env::join_paths(libs).expect("Failed to append to DYLD_LIBRARY_PATH");
+        let new_dyld = env::join_paths(libs)
+            .map_err(|_|Error::FailedSetEnvVar)?;
         env::set_var("DYLD_LIBRARY_PATH", &new_dyld);
     }
 
@@ -159,23 +170,86 @@ fn set_temp_envs() {
     layer.push("vulkan");
     layer.push("explicit_layer.d");
     env::set_var("VK_LAYER_PATH", layer.into_os_string());
+
+    Ok(())
 }
 
 // Is the default sdk directory empty
-fn check_sdk_dir() -> bool {
-    let mut sdk_dir = dirs::home_dir().expect("Failed to find home directory");
+fn check_sdk_dir() -> Result<bool, Error> {
+    let mut sdk_dir = dirs::home_dir()
+        .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
     sdk_dir.push(".vulkan_sdk");
-    sdk_dir.exists()
+    Ok(sdk_dir.exists())
 }
 
 // Is the VULKAN_SDK variable pointing at
 // the default location and is that location empty.
-fn is_default_dir_and_empty(vulkan_sdk: String) -> bool {
-    let mut default_dir = dirs::home_dir().expect("Failed to find home directory");
+fn is_default_dir_and_empty(vulkan_sdk: String) -> Result<bool, Error> {
+    let mut default_dir = dirs::home_dir()
+        .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
     default_dir.push(".vulkan_sdk");
     default_dir.push("macOS");
-    vulkan_sdk == default_dir.to_string_lossy() && !default_dir.exists()
+    Ok(vulkan_sdk == default_dir.to_string_lossy() && !default_dir.exists())
 }
+
+#[derive(Debug)]
+pub enum Error {
+    IO(io::Error),
+    FailedCurlSetup(String),
+    FailedSdkDownload,
+    FailedCommand(String),
+    FailedSetEnvVar,
+    /// User has sdk in non default directory
+    /// Recommend continuing silently
+    NonDefaultDir,
+    /// Env vars needed to be reset
+    /// Probably the user has not sourced .bash_profile yet
+    /// Recommend continuing silently
+    ResetEnvVars,
+    /// User has chosen not to install the sdk
+    ChoseNotToInstall,
+}
+
+/// Either install silently 
+/// or with a message.
+/// Can use Default::default()
+/// which gives a default message
+pub enum Install {
+    Silent,
+    Message(Message),
+}
+
+/// Specify messages to the user
+/// for the install.
+/// Can use Default::default()
+pub struct Message {
+    /// Initial question, do they want to install?
+    pub question: String,
+    /// Message while they are downloading
+    pub downloading: String,
+    /// Message for when complete
+    pub complete: String,
+}
+
+impl Default for Install {
+    fn default() -> Self {
+        Install::Message(Default::default())
+    }
+}
+
+impl Default for Message {
+    fn default() -> Self {
+        let question = format!("Vulkano requires the Vulkan SDK to use MoltenVK for MacOS \nWould you like to automatically install it now? (Y/n)");
+        let downloading = format!("Downloading and installing Vulkan SDK, This may take some time. Grab a coffee :)");
+        let complete = format!("Installation complete :D \nTo update simply remove the '~/.vulkan_sdk' directory");
+        Message {
+            question,
+            downloading,
+            complete
+        }
+    }
+}
+
 
 /// This will check if you have the
 /// Vulkan SDK installed by checking
@@ -186,50 +260,63 @@ fn is_default_dir_and_empty(vulkan_sdk: String) -> bool {
 /// it at home/.vulkan_sdk.
 /// It will then set the required environmnet 
 /// variables.
-pub fn check_or_install() {
+/// You can install silently or with a message.
+/// Use `check_or_install(Default::default())` 
+/// for an install with a default message
+pub fn check_or_install(install: Install) -> Result<(), Error> {
     match env::var("VULKAN_SDK") {
         // VULKAN_SDK is set 
         Ok(v) => {
-            if is_default_dir_and_empty(v) {
+            if is_default_dir_and_empty(v)? {
                 // Install as the directory is empty
             } else {
                 // VULKAN_SDK is set to a non-default or directory is not empty.
                 // Return silently.
-                return;
+                return Err(Error::NonDefaultDir);
             }
         },
         Err(_) =>{
             // Environment Variables are not set
             // but might just need to be set temporarily.
-            if check_sdk_dir() {
+            if check_sdk_dir()? {
                 // Set env vars and return silently.
-                set_temp_envs();
-                return;
+                set_temp_envs()?;
+                return Err(Error::ResetEnvVars);
             }
             // Vulkan SDK needs to be installed
         },
     }
 
-    println!("Vulkano requires the Vulkan SDK to use MoltenVK for MacOS");
-    println!("Would you like to automatically install it now? (Y/n)");
-    
-    loop {
-        let mut answer = String::new();
-        io::stdin().read_line(&mut answer).expect("failed to read input");
-        answer.pop();
-        match answer.as_str() {
-            "Y" => break,
-            "n" => return,
-            _ => println!("Invalid answer, enter 'Y' to install or 'n' to quit"),
-        }
+    match install {
+        Install::Silent =>{
+            let sdk = SDK::download()?;
+            sdk.unpack()?;
+            set_env_vars()?;
+        },
+        Install::Message(message) => {
+            println!("{}", message.question);
+
+            loop {
+                let mut answer = String::new();
+                io::stdin().read_line(&mut answer)
+                    .map_err(|e|Error::IO(e))?;
+                answer.pop();
+                match answer.as_str() {
+                    "Y" | "" => break,
+                    "n" => return Err(Error::ChoseNotToInstall),
+                    _ => println!("Invalid answer, enter 'Y' to install or 'n' to quit"),
+                }
+            }
+
+            println!("{}", message.downloading);
+
+            let sdk = SDK::download()?;
+            sdk.unpack()?;
+            set_env_vars()?;
+
+            println!("{}", message.complete);
+        },
     }
 
-    println!("Downloading and installing Vulkan SDK, This may take some time. Grab a coffee :)");
-
-    let sdk = SDK::download().expect("Downloading the Vulkan SDK failed");
-    sdk.unpack().expect("Failed to unpack the Vulkan SDK");
-
-    set_env_vars().expect("Failed to set the required environment variables");
-    println!("Installation complete :D");
-    println!("To update simply remove the '~/.vulkan_sdk' directory");
+    Ok(())
 }
