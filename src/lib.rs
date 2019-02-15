@@ -20,7 +20,7 @@ const ADDRESS: &'static str = "http://0.0.0.0:8000/vulkan-sdk.tar.gz";
 const FILE_SIZE: u64 = 209_715_200;
 
 struct ProgressInfo {
-    pf: Box<FnMut(f64, f64) -> bool + Send>,
+    pf: Box<FnMut(u64, u64) -> bool + Send>,
     file_size: u64,
 }
 
@@ -77,7 +77,7 @@ pub struct Message {
     pub question: Box<dyn FnMut() -> bool>,
     /// This function gives progress while the download is happending 
     /// (download_so_for, total_file_size)
-    pub progress: Box<dyn FnMut(f64, f64) -> bool + Send>,
+    pub progress: Box<dyn FnMut(u64, u64) -> bool + Send>,
     /// Message for when unpacking tar
     pub unpacking: Box<dyn FnMut()>,
     /// Message for when complete
@@ -92,8 +92,8 @@ impl Default for Install {
 
 fn progress_function(_: f64, downloaded: f64, _: f64, _: f64) -> bool {
     let mut p = PROGRESS_FUNCTION.lock().unwrap();
-    let size: f64 = p.file_size as f64;
-    (p.pf.as_mut())(downloaded, size)
+    let size: u64 = p.file_size as u64;
+    (p.pf.as_mut())(downloaded as u64, size)
 
 }
 
@@ -288,29 +288,21 @@ impl Default for Message {
     fn default() -> Self {
         let question = Box::new(|| {
             println!("Vulkano requires the Vulkan SDK to use MoltenVK for MacOS");
-            println!("Would you like to automatically install it now? (Y/n)");
-            loop {
-                let mut answer = String::new();
-                if io::stdin().read_line(&mut answer).is_err() { return false; }
-                answer.pop();
-                match answer.as_str() {
-                    "Y" | "y" | "" => return true,
-                    "n" => return false,
-                    _ => println!("Invalid answer, enter 'Y' to install or 'n' to quit"),
-                }
-            }
+            println!("The SDK will now be downloaded and environment variables added to .bash_profile");
+            true
         });
         let mut bar = ProgressBar::new(FILE_SIZE as u64);
         bar.set_units(Units::Bytes);
         let progress = Box::new(move |downloaded, _| {
-            bar.add(downloaded as u64);
+            bar.add(downloaded);
             true
         });
         let unpacking = Box::new(|| {
             println!("Unpacking file into ~/.vulkan_sdk");
         });
         let complete = Box::new(|| {
-            println!("Installation complete :D \nTo update simply remove the '~/.vulkan_sdk' directory");
+            println!("Installation complete :D");
+            println!("To update simply remove the '~/.vulkan_sdk' directory");
         });
         Message {
             question,
