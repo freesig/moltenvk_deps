@@ -1,6 +1,6 @@
 [package]
 name = "moltenvk_deps"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Tom Gowan <tomrgowan@gmail.com>"]
 edition = "2018"
 description = "Downloads and installs MoltenVK / VulkanSDK for macOS"
