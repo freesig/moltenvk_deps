@@ -222,7 +222,6 @@ fn set_temp_envs() -> Result<(), Error> {
     //export DYLD_LIBRARY_PATH=$VULKAN_SDK/lib:$DYLD_LIBRARY_PATH
     let mut lib = vulkan_sdk.clone();
     lib.push("lib");
-    let lib_path = lib.clone();
     if let Some(dyld) = env::var_os("DYLD_LIBRARY_PATH") {
         let mut libs = env::split_paths(&dyld).collect::<Vec<_>>();
         libs.push(lib);
