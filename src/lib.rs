@@ -13,8 +13,7 @@ use tempdir::TempDir;
 use std::time::Duration;
 use std::sync::Mutex;
 
-//const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
-const ADDRESS: &'static str = "http://0.0.0.0:8000/vulkan-sdk.tar.gz";
+const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
 
 // The file size fallback 
 const FILE_SIZE: u64 = 209_715_200;
@@ -232,11 +231,6 @@ fn set_temp_envs() -> Result<(), Error> {
         env::set_var("DYLD_LIBRARY_PATH", &new_dyld);
     }
 
-    // Temporary tell vulkano where the lib is
-    // This is necessary because shared_library does not
-    // receive temporary environment variables.
-    env::set_var("VULKAN_LIB_PATH", lib_path.into_os_string());
-    
     let mut icd = vulkan_sdk.clone();
     icd.push("etc");
     icd.push("vulkan");
