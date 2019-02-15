@@ -6,11 +6,33 @@ use std::path::PathBuf;
 use dirs;
 use env_perm;
 use curl;
+use lazy_static;
+use pbr::{ProgressBar, Units};
 use curl::easy::Easy; 
 use tempdir::TempDir;
 use std::time::Duration;
+use std::sync::Mutex;
 
-const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
+//const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
+const ADDRESS: &'static str = "http://0.0.0.0:8000/vulkan-sdk.tar.gz";
+
+// The file size fallback 
+const FILE_SIZE: u64 = 209_715_200;
+
+struct ProgressInfo {
+    pf: Box<FnMut(f64, f64) -> bool + Send>,
+    file_size: u64,
+}
+
+lazy_static::lazy_static!{
+    static ref PROGRESS_FUNCTION: Mutex<ProgressInfo> = {
+        Mutex::new(
+            ProgressInfo {
+                pf: Box::new(|_, _| true),
+                file_size: FILE_SIZE,
+            })
+    };
+}
 
 struct SDK {
     name: String,
@@ -20,6 +42,61 @@ struct SDK {
     _tmp_dir: TempDir,
 }
 
+#[derive(Debug)]
+pub enum Error {
+    IO(io::Error),
+    FailedCurlSetup(String),
+    FailedSdkDownload,
+    FailedCommand(String),
+    FailedSetEnvVar,
+    /// User has sdk in non default directory
+    /// Recommend continuing silently
+    NonDefaultDir,
+    /// Env vars needed to be reset
+    /// Probably the user has not sourced .bash_profile yet
+    /// Recommend continuing silently
+    ResetEnvVars(PathBuf),
+    /// User has chosen not to install the sdk
+    ChoseNotToInstall,
+}
+
+/// Either install silently 
+/// or with a call messages.
+/// Can use Default::default()
+/// which gives a default message
+pub enum Install {
+    Silent,
+    Message(Message),
+}
+
+/// Specify callbacks to the user
+/// for the install.
+/// Can use Default::default()
+pub struct Message {
+    /// Initial question, do they want to install?
+    pub question: Box<dyn FnMut() -> bool>,
+    /// This function gives progress while the download is happending 
+    /// (download_so_for, total_file_size)
+    pub progress: Box<dyn FnMut(f64, f64) -> bool + Send>,
+    /// Message for when unpacking tar
+    pub unpacking: Box<dyn FnMut()>,
+    /// Message for when complete
+    pub complete: Box<dyn FnMut()>,
+}
+
+impl Default for Install {
+    fn default() -> Self {
+        Install::Message(Default::default())
+    }
+}
+
+fn progress_function(_: f64, downloaded: f64, _: f64, _: f64) -> bool {
+    let mut p = PROGRESS_FUNCTION.lock().unwrap();
+    let size: f64 = p.file_size as f64;
+    (p.pf.as_mut())(downloaded, size)
+
+}
+
 impl SDK {
     fn download() -> Result<Self, Error> {
         let tmp_dir = TempDir::new("sdk_download").map_err(|e|Error::IO(e))?;
@@ -27,6 +104,10 @@ impl SDK {
         let mut response = Vec::new();
         handle.timeout(Duration::from_secs(0))
             .map_err(|_|Error::FailedCurlSetup("Set timeout failed".to_string()))?;
+        handle.progress(true)
+            .map_err(|_|Error::FailedCurlSetup("Set progress failed".to_string()))?;
+        handle.progress_function(progress_function)
+            .map_err(|_|Error::FailedCurlSetup("Set progress fucntion failed".to_string()))?;
         handle.url(ADDRESS)
             .map_err(|_|Error::FailedSdkDownload)?;
         {
@@ -192,60 +273,50 @@ fn is_default_dir_and_empty(vulkan_sdk: String) -> Result<bool, Error> {
     Ok(vulkan_sdk == default_dir.to_string_lossy() && !default_dir.exists())
 }
 
-#[derive(Debug)]
-pub enum Error {
-    IO(io::Error),
-    FailedCurlSetup(String),
-    FailedSdkDownload,
-    FailedCommand(String),
-    FailedSetEnvVar,
-    /// User has sdk in non default directory
-    /// Recommend continuing silently
-    NonDefaultDir,
-    /// Env vars needed to be reset
-    /// Probably the user has not sourced .bash_profile yet
-    /// Recommend continuing silently
-    ResetEnvVars,
-    /// User has chosen not to install the sdk
-    ChoseNotToInstall,
-}
+fn default_lib_dir() -> Result<PathBuf, Error> {
+    let mut lib_dir = dirs::home_dir()
+        .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
+    lib_dir.push(".vulkan_sdk");
+    lib_dir.push("macOS");
+    lib_dir.push("lib");
+    lib_dir.push("libvulkan.1.dylib");
+    Ok(lib_dir)
 
-/// Either install silently 
-/// or with a message.
-/// Can use Default::default()
-/// which gives a default message
-pub enum Install {
-    Silent,
-    Message(Message),
-}
-
-/// Specify messages to the user
-/// for the install.
-/// Can use Default::default()
-pub struct Message {
-    /// Initial question, do they want to install?
-    pub question: String,
-    /// Message while they are downloading
-    pub downloading: String,
-    /// Message for when complete
-    pub complete: String,
-}
-
-impl Default for Install {
-    fn default() -> Self {
-        Install::Message(Default::default())
-    }
 }
 
 impl Default for Message {
     fn default() -> Self {
-        let question = format!("Vulkano requires the Vulkan SDK to use MoltenVK for MacOS \nWould you like to automatically install it now? (Y/n)");
-        let downloading = format!("Downloading and installing Vulkan SDK, This may take some time. Grab a coffee :)");
-        let complete = format!("Installation complete :D \nTo update simply remove the '~/.vulkan_sdk' directory");
+        let question = Box::new(|| {
+            println!("Vulkano requires the Vulkan SDK to use MoltenVK for MacOS");
+            println!("Would you like to automatically install it now? (Y/n)");
+            loop {
+                let mut answer = String::new();
+                if io::stdin().read_line(&mut answer).is_err() { return false; }
+                answer.pop();
+                match answer.as_str() {
+                    "Y" | "y" | "" => return true,
+                    "n" => return false,
+                    _ => println!("Invalid answer, enter 'Y' to install or 'n' to quit"),
+                }
+            }
+        });
+        let mut bar = ProgressBar::new(FILE_SIZE as u64);
+        bar.set_units(Units::Bytes);
+        let progress = Box::new(move |downloaded, _| {
+            bar.add(downloaded as u64);
+            true
+        });
+        let unpacking = Box::new(|| {
+            println!("Unpacking file into ~/.vulkan_sdk");
+        });
+        let complete = Box::new(|| {
+            println!("Installation complete :D \nTo update simply remove the '~/.vulkan_sdk' directory");
+        });
         Message {
             question,
-            downloading,
-            complete
+            progress,
+            unpacking,
+            complete,
         }
     }
 }
@@ -263,7 +334,7 @@ impl Default for Message {
 /// You can install silently or with a message.
 /// Use `check_or_install(Default::default())` 
 /// for an install with a default message
-pub fn check_or_install(install: Install) -> Result<(), Error> {
+pub fn check_or_install(install: Install) -> Result<PathBuf, Error> {
     match env::var("VULKAN_SDK") {
         // VULKAN_SDK is set 
         Ok(v) => {
@@ -281,7 +352,7 @@ pub fn check_or_install(install: Install) -> Result<(), Error> {
             if check_sdk_dir()? {
                 // Set env vars and return silently.
                 set_temp_envs()?;
-                return Err(Error::ResetEnvVars);
+                return Err(Error::ResetEnvVars(default_lib_dir()?));
             }
             // Vulkan SDK needs to be installed
         },
@@ -293,30 +364,23 @@ pub fn check_or_install(install: Install) -> Result<(), Error> {
             sdk.unpack()?;
             set_env_vars()?;
         },
-        Install::Message(message) => {
-            println!("{}", message.question);
-
-            loop {
-                let mut answer = String::new();
-                io::stdin().read_line(&mut answer)
-                    .map_err(|e|Error::IO(e))?;
-                answer.pop();
-                match answer.as_str() {
-                    "Y" | "" => break,
-                    "n" => return Err(Error::ChoseNotToInstall),
-                    _ => println!("Invalid answer, enter 'Y' to install or 'n' to quit"),
-                }
+        Install::Message(mut message) => {
+            {
+                PROGRESS_FUNCTION.lock().unwrap().pf = message.progress;
             }
+            if (message.question)() {
 
-            println!("{}", message.downloading);
+                let sdk = SDK::download()?;
+                (message.unpacking)();
+                sdk.unpack()?;
+                set_env_vars()?;
 
-            let sdk = SDK::download()?;
-            sdk.unpack()?;
-            set_env_vars()?;
-
-            println!("{}", message.complete);
+                (message.complete)();
+            } else {
+                return Err(Error::ChoseNotToInstall);
+            }
         },
     }
 
-    Ok(())
+    Ok(default_lib_dir()?)
 }
