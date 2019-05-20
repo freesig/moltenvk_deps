@@ -8,14 +8,14 @@ use env_perm;
 use curl;
 use lazy_static;
 use pbr::{ProgressBar, Units};
-use curl::easy::Easy; 
+use curl::easy::Easy;
 use tempdir::TempDir;
 use std::time::Duration;
 use std::sync::Mutex;
 
 const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
 
-// The file size fallback 
+// The file size fallback
 const FILE_SIZE: u64 = 209_715_200;
 
 struct ProgressInfo {
@@ -59,7 +59,7 @@ pub enum Error {
     ChoseNotToInstall,
 }
 
-/// Either install silently 
+/// Either install silently
 /// or with a call messages.
 /// Can use Default::default()
 /// which gives a default message
@@ -74,7 +74,7 @@ pub enum Install {
 pub struct Message {
     /// Initial question, do they want to install?
     pub question: Box<dyn FnMut() -> bool>,
-    /// This function gives progress while the download is happending 
+    /// This function gives progress while the download is happending
     /// (download_so_for, total_file_size)
     pub progress: Box<dyn FnMut(u64, u64) -> bool + Send>,
     /// Message for when unpacking tar
@@ -171,7 +171,7 @@ impl SDK {
             .arg(format!("{}/{}", sdk_dir.display(), name))
             .output()
             .map_err(|_|Error::FailedCommand("Failed to rm".to_string()))?;
-        
+
         println!("The Vulkan SDK was successfully installed at {}", sdk_dir.display());
         Ok(())
     }
@@ -218,7 +218,7 @@ fn set_temp_envs() -> Result<(), Error> {
             .map_err(|_|Error::FailedSetEnvVar)?;
         env::set_var("PATH", &new_path);
     }
-    
+
     //export DYLD_LIBRARY_PATH=$VULKAN_SDK/lib:$DYLD_LIBRARY_PATH
     let mut lib = vulkan_sdk.clone();
     lib.push("lib");
@@ -237,7 +237,7 @@ fn set_temp_envs() -> Result<(), Error> {
     icd.push("MoltenVK_icd.json");
     //export VK_ICD_FILENAMES=$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json
     env::set_var("VK_ICD_FILENAMES", icd.into_os_string());
-    
+
     //export VK_LAYER_PATH=$VULKAN_SDK/etc/vulkan/explicit_layer.d
     let mut layer = vulkan_sdk.clone();
     layer.push("etc");
@@ -287,7 +287,7 @@ impl Default for Message {
         let mut bar = ProgressBar::new(FILE_SIZE as u64);
         bar.set_units(Units::Bytes);
         let progress = Box::new(move |downloaded, _| {
-            bar.add(downloaded);
+            bar.set(downloaded);
             true
         });
         let unpacking = Box::new(|| {
@@ -314,14 +314,14 @@ impl Default for Message {
 /// If it is not set then it will download
 /// the latest SDK from lunarg.com and install
 /// it at home/.vulkan_sdk.
-/// It will then set the required environmnet 
+/// It will then set the required environmnet
 /// variables.
 /// You can install silently or with a message.
-/// Use `check_or_install(Default::default())` 
+/// Use `check_or_install(Default::default())`
 /// for an install with a default message
 pub fn check_or_install(install: Install) -> Result<PathBuf, Error> {
     match env::var("VULKAN_SDK") {
-        // VULKAN_SDK is set 
+        // VULKAN_SDK is set
         Ok(v) => {
             if is_default_dir_and_empty(v)? {
                 // Install as the directory is empty
