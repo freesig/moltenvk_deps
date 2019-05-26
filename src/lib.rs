@@ -194,6 +194,9 @@ fn set_env_vars() -> Result<(), Error> {
     //export VK_LAYER_PATH=$VULKAN_SDK/etc/vulkan/explicit_layer.d
     env_perm::check_or_set("VK_LAYER_PATH", r#""$VULKAN_SDK/etc/vulkan/explicit_layer.d""#)
         .map_err(|e|Error::IO(e))?;
+    //export SHADERC_LIB_DIR=$VULKAN_SDK/lib
+    env_perm::check_or_set("SHADERC_LIB_DIR", r#""$VULKAN_SDK/lib""#)
+        .map_err(|e|Error::IO(e))?;
     set_temp_envs()?;
     Ok(())
 }
@@ -245,6 +248,10 @@ fn set_temp_envs() -> Result<(), Error> {
     layer.push("explicit_layer.d");
     env::set_var("VK_LAYER_PATH", layer.into_os_string());
 
+    //export SHADERC_LIB_DIR=$VULKAN_SDK/lib
+    let mut clib = vulkan_sdk.clone();
+    clib.push("lib");
+    env::set_var("SHADERC_LIB_DIR", clib.into_os_string());
     Ok(())
 }
 
