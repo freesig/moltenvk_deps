@@ -13,7 +13,10 @@ use tempdir::TempDir;
 use std::time::Duration;
 use std::sync::Mutex;
 
+#[cfg(not(feature = "install_stable_moltenvk"))]
 const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
+#[cfg(feature = "install_stable_moltenvk")]
+const ADDRESS: &'static str = "https://vulkan.lunarg.com/sdk/home#sdk/downloadConfirm/1.1.101.0/mac/vulkansdk-macos-1.1.101.0.tar.gz";
 
 // The file size fallback
 const FILE_SIZE: u64 = 209_715_200;
@@ -177,6 +180,20 @@ impl SDK {
     }
 }
 
+fn delete_dir() -> Result<(), Error> {
+    let home = dirs::home_dir()
+        .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
+    let mut sdk_dir = home.clone();
+    sdk_dir.push(".vulkan_sdk");
+    // Move the downloaded SDK there
+    Command::new("rm")
+        .arg("-fr")
+        .arg(&sdk_dir)
+        .output()
+        .map_err(|_|Error::FailedCommand("Failed to mv".to_string()))?;
+    Ok(())
+}
+
 fn set_env_vars() -> Result<(), Error> {
     println!("Setting environment variables");
     //export VULKAN_SDK=$HOME/vulkan_sdk/macOS
@@ -327,6 +344,9 @@ impl Default for Message {
 /// Use `check_or_install(Default::default())`
 /// for an install with a default message
 pub fn check_or_install(install: Install) -> Result<PathBuf, Error> {
+    if cfg!(feature = "install_stable_moltenvk") || cfg!(feature = "update_moltenvk") {
+        delete_dir()?;
+    }
     match env::var("VULKAN_SDK") {
         // VULKAN_SDK is set
         Ok(v) => {

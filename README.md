@@ -12,6 +12,8 @@ Then it will set the environment variables permanently in your `.bash_profile`.
 If you are not using bash as your shell you will need to manually
 put the following environment variables in the correct place.
 
+To update to the latest sdk run with `cargo run --features "update_moltenvk"`
+
 __It will set:__
 ```
 VULKAN_SDK=$HOME/vulkan_sdk/macOS
