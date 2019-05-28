@@ -13,9 +13,9 @@ use tempdir::TempDir;
 use std::time::Duration;
 use std::sync::Mutex;
 
-#[cfg(not(feature = "install_stable_moltenvk"))]
+#[cfg(not(install_stable_moltenvk))]
 const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
-#[cfg(feature = "install_stable_moltenvk")]
+#[cfg(install_stable_moltenvk)]
 const ADDRESS: &'static str = "https://vulkan.lunarg.com/sdk/home#sdk/downloadConfirm/1.1.101.0/mac/vulkansdk-macos-1.1.101.0.tar.gz";
 
 // The file size fallback
@@ -344,7 +344,7 @@ impl Default for Message {
 /// Use `check_or_install(Default::default())`
 /// for an install with a default message
 pub fn check_or_install(install: Install) -> Result<PathBuf, Error> {
-    if cfg!(feature = "install_stable_moltenvk") || cfg!(feature = "update_moltenvk") {
+    if cfg!(install_stable_moltenvk) || cfg!(update_moltenvk) {
         delete_dir()?;
     }
     match env::var("VULKAN_SDK") {

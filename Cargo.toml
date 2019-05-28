@@ -10,10 +10,6 @@ readme = "README.md"
 license = "MIT"
 keywords = ["vulkan", "vulkansdk", "moltenvk", "macos"]
 
-[features]
-install_stable_moltenvk = []
-update_moltenvk = []
-
 [dependencies]
 env_perm = "0.1" 
 dirs = "1.0"
