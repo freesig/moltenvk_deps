@@ -53,7 +53,8 @@ pub enum Error {
     /// Recommend continuing silently
     NonDefaultDir,
     /// Env vars needed to be reset
-    /// Probably the user has not sourced .bash_profile yet
+    /// Probably the user has not sourced .bash_profile
+    /// or .bash_login or .profile yet
     /// Recommend continuing silently
     ResetEnvVars(PathBuf),
     /// User has chosen not to install the sdk
@@ -217,7 +218,7 @@ fn set_env_vars() -> Result<(), Error> {
 }
 
 // Sets the environment variables temporarily because the
-// use has not source'd the .bash_profile yet.
+// use has not source'd the .bash_profile or .bash_login or .profile yet.
 fn set_temp_envs() -> Result<(), Error> {
     //export VULKAN_SDK=$HOME/vulkan_sdk/macOS
     let mut vulkan_sdk = dirs::home_dir().ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
@@ -280,6 +281,8 @@ fn get_current_path() -> Option<Vec<PathBuf>> {
                     stdin
                         .write_all(b"source ~/.bash_profile\n")
                         .ok()
+                        .and_then(|_| stdin.write_all(b"source ~/.bash_login\n").ok())
+                        .and_then(|_| stdin.write_all(b"source ~/.profile\n").ok())
                         .and_then(|_| stdin.write_all(b"echo $PATH").ok())
                 })
                 .and_then(|_| {
@@ -321,7 +324,7 @@ impl Default for Message {
         let question = Box::new(|| {
             println!("Vulkano requires the Vulkan SDK to use MoltenVK for MacOS");
             println!(
-                "The SDK will now be downloaded and environment variables added to .bash_profile"
+                "The SDK will now be downloaded and environment variables added to .bash_profile or .bash_login or .profile depending on what you use"
             );
             true
         });
