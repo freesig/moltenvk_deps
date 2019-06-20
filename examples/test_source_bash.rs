@@ -17,6 +17,8 @@ fn main() {
                     stdin
                         .write_all(b"source ~/.bash_profile\n")
                         .ok()
+                        .and_then(|_| stdin.write_all(b"source ~/.bash_login\n").ok())
+                        .and_then(|_| stdin.write_all(b"source ~/.profile\n").ok())
                         .and_then(|_| stdin.write_all(b"echo $PATH").ok())
                 })
                 .and_then(|_| {
