@@ -1,17 +1,18 @@
-use std::env;
-use std::fs::File;
-use std::process::Command;
-use std::io::{self, copy};
-use std::path::PathBuf;
+use curl;
+use curl::easy::Easy;
 use dirs;
 use env_perm;
-use curl;
 use lazy_static;
 use pbr::{ProgressBar, Units};
-use curl::easy::Easy;
-use tempdir::TempDir;
-use std::time::Duration;
+use std::env;
+use std::fs::File;
+use std::io::{self, copy};
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
+use std::time::Duration;
+use tempdir::TempDir;
+use std::io::Write;
 
 const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vulkan-sdk.tar.gz";
 
@@ -19,11 +20,11 @@ const ADDRESS: &'static str = "https://sdk.lunarg.com/sdk/download/latest/mac/vu
 const FILE_SIZE: u64 = 209_715_200;
 
 struct ProgressInfo {
-    pf: Box<FnMut(u64, u64) -> bool + Send>,
+    pf: Box<dyn FnMut(u64, u64) -> bool + Send>,
     file_size: u64,
 }
 
-lazy_static::lazy_static!{
+lazy_static::lazy_static! {
     static ref PROGRESS_FUNCTION: Mutex<ProgressInfo> = {
         Mutex::new(
             ProgressInfo {
@@ -93,42 +94,51 @@ fn progress_function(_: f64, downloaded: f64, _: f64, _: f64) -> bool {
     let mut p = PROGRESS_FUNCTION.lock().unwrap();
     let size: u64 = p.file_size as u64;
     (p.pf.as_mut())(downloaded as u64, size)
-
 }
 
 impl SDK {
     fn download() -> Result<Self, Error> {
-        let tmp_dir = TempDir::new("sdk_download").map_err(|e|Error::IO(e))?;
+        let tmp_dir = TempDir::new("sdk_download").map_err(|e| Error::IO(e))?;
         let mut handle = Easy::new();
         let mut response = Vec::new();
-        handle.timeout(Duration::from_secs(0))
-            .map_err(|_|Error::FailedCurlSetup("Set timeout failed".to_string()))?;
-        handle.progress(true)
-            .map_err(|_|Error::FailedCurlSetup("Set progress failed".to_string()))?;
-        handle.progress_function(progress_function)
-            .map_err(|_|Error::FailedCurlSetup("Set progress fucntion failed".to_string()))?;
-        handle.url(ADDRESS)
-            .map_err(|_|Error::FailedSdkDownload)?;
+        handle
+            .timeout(Duration::from_secs(0))
+            .map_err(|_| Error::FailedCurlSetup("Set timeout failed".to_string()))?;
+        handle
+            .progress(true)
+            .map_err(|_| Error::FailedCurlSetup("Set progress failed".to_string()))?;
+        handle
+            .progress_function(progress_function)
+            .map_err(|_| Error::FailedCurlSetup("Set progress fucntion failed".to_string()))?;
+        handle.url(ADDRESS).map_err(|_| Error::FailedSdkDownload)?;
         {
             let mut transfer = handle.transfer();
-            transfer.write_function(|data| {
-                let len = data.len();
-                response.extend_from_slice(data);
-                Ok(len)
-            }).map_err(|_|Error::FailedCurlSetup("Failed to create write function".to_string()))?;
-            transfer.perform().map_err(|_|Error::FailedSdkDownload)?;
+            transfer
+                .write_function(|data| {
+                    let len = data.len();
+                    response.extend_from_slice(data);
+                    Ok(len)
+                })
+                .map_err(|_| {
+                    Error::FailedCurlSetup("Failed to create write function".to_string())
+                })?;
+            transfer.perform().map_err(|_| Error::FailedSdkDownload)?;
         }
         let (file, downloaded) = {
-            let file_name = ADDRESS.split('/')
-                .last()
-                .unwrap_or("vulkan-sdk.tar.gz");
+            let file_name = ADDRESS.split('/').last().unwrap_or("vulkan-sdk.tar.gz");
 
             let path = tmp_dir.path().join(&file_name);
-            (File::create(&path),
-             SDK{ name: file_name.into(), path, _tmp_dir: tmp_dir })
+            (
+                File::create(&path),
+                SDK {
+                    name: file_name.into(),
+                    path,
+                    _tmp_dir: tmp_dir,
+                },
+            )
         };
         file.and_then(|mut dest| copy(&mut &response[..], &mut dest))
-            .and_then(move |_| Ok(downloaded) )
+            .and_then(move |_| Ok(downloaded))
             .map_err(|e| Error::IO(e))
     }
 
@@ -138,8 +148,7 @@ impl SDK {
             path: dl_path,
             ..
         } = self;
-        let home = dirs::home_dir()
-            .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
+        let home = dirs::home_dir().ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
         let mut sdk_dir = home.clone();
         sdk_dir.push(".vulkan_sdk");
 
@@ -147,14 +156,14 @@ impl SDK {
         Command::new("mkdir")
             .arg(&sdk_dir)
             .output()
-            .map_err(|_|Error::FailedCommand("Failed to mkdir".to_string()))?;
+            .map_err(|_| Error::FailedCommand("Failed to mkdir".to_string()))?;
 
         // Move the downloaded SDK there
         Command::new("mv")
             .arg(&dl_path)
             .arg(&sdk_dir)
             .output()
-            .map_err(|_|Error::FailedCommand("Failed to mv".to_string()))?;
+            .map_err(|_| Error::FailedCommand("Failed to mv".to_string()))?;
 
         // Untar the contents
         Command::new("tar")
@@ -164,15 +173,18 @@ impl SDK {
             .arg(&sdk_dir)
             .arg("--strip-components=1")
             .output()
-            .map_err(|_|Error::FailedCommand("Failed to tar".to_string()))?;
+            .map_err(|_| Error::FailedCommand("Failed to tar".to_string()))?;
 
         // Remove the empty dirctory
         Command::new("rm")
             .arg(format!("{}/{}", sdk_dir.display(), name))
             .output()
-            .map_err(|_|Error::FailedCommand("Failed to rm".to_string()))?;
+            .map_err(|_| Error::FailedCommand("Failed to rm".to_string()))?;
 
-        println!("The Vulkan SDK was successfully installed at {}", sdk_dir.display());
+        println!(
+            "The Vulkan SDK was successfully installed at {}",
+            sdk_dir.display()
+        );
         Ok(())
     }
 }
@@ -181,22 +193,25 @@ fn set_env_vars() -> Result<(), Error> {
     println!("Setting environment variables");
     //export VULKAN_SDK=$HOME/vulkan_sdk/macOS
     env_perm::check_or_set("VULKAN_SDK", r#""$HOME/.vulkan_sdk/macOS""#)
-        .map_err(|e|Error::IO(e))?;
+        .map_err(|e| Error::IO(e))?;
     //export PATH=$VULKAN_SDK/bin:$PATH
-    env_perm::append("PATH", "$VULKAN_SDK/bin")
-        .map_err(|e|Error::IO(e))?;
+    env_perm::append("PATH", "$VULKAN_SDK/bin").map_err(|e| Error::IO(e))?;
     //export DYLD_LIBRARY_PATH=$VULKAN_SDK/lib:$DYLD_LIBRARY_PATH
-    env_perm::append("DYLD_LIBRARY_PATH", "$VULKAN_SDK/lib")
-        .map_err(|e|Error::IO(e))?;
+    env_perm::append("DYLD_LIBRARY_PATH", "$VULKAN_SDK/lib").map_err(|e| Error::IO(e))?;
     //export VK_ICD_FILENAMES=$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json
-    env_perm::check_or_set("VK_ICD_FILENAMES", r#""$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json""#)
-        .map_err(|e|Error::IO(e))?;
+    env_perm::check_or_set(
+        "VK_ICD_FILENAMES",
+        r#""$VULKAN_SDK/etc/vulkan/icd.d/MoltenVK_icd.json""#,
+    )
+    .map_err(|e| Error::IO(e))?;
     //export VK_LAYER_PATH=$VULKAN_SDK/etc/vulkan/explicit_layer.d
-    env_perm::check_or_set("VK_LAYER_PATH", r#""$VULKAN_SDK/etc/vulkan/explicit_layer.d""#)
-        .map_err(|e|Error::IO(e))?;
+    env_perm::check_or_set(
+        "VK_LAYER_PATH",
+        r#""$VULKAN_SDK/etc/vulkan/explicit_layer.d""#,
+    )
+    .map_err(|e| Error::IO(e))?;
     //export SHADERC_LIB_DIR=$VULKAN_SDK/lib
-    env_perm::check_or_set("SHADERC_LIB_DIR", r#""$VULKAN_SDK/lib""#)
-        .map_err(|e|Error::IO(e))?;
+    env_perm::check_or_set("SHADERC_LIB_DIR", r#""$VULKAN_SDK/lib""#).map_err(|e| Error::IO(e))?;
     set_temp_envs()?;
     Ok(())
 }
@@ -205,8 +220,7 @@ fn set_env_vars() -> Result<(), Error> {
 // use has not source'd the .bash_profile yet.
 fn set_temp_envs() -> Result<(), Error> {
     //export VULKAN_SDK=$HOME/vulkan_sdk/macOS
-    let mut vulkan_sdk = dirs::home_dir()
-            .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
+    let mut vulkan_sdk = dirs::home_dir().ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
     vulkan_sdk.push(".vulkan_sdk");
     vulkan_sdk.push("macOS");
     env::set_var("VULKAN_SDK", vulkan_sdk.clone().into_os_string());
@@ -214,11 +228,9 @@ fn set_temp_envs() -> Result<(), Error> {
     //export PATH=$VULKAN_SDK/bin:$PATH
     let mut bin = vulkan_sdk.clone();
     bin.push("bin");
-    if let Some(path) = env::var_os("PATH") {
-        let mut paths = env::split_paths(&path).collect::<Vec<_>>();
+    if let Some(mut paths) = get_current_path() {
         paths.push(bin);
-        let new_path = env::join_paths(paths)
-            .map_err(|_|Error::FailedSetEnvVar)?;
+        let new_path = env::join_paths(paths).map_err(|_| Error::FailedSetEnvVar)?;
         env::set_var("PATH", &new_path);
     }
 
@@ -228,8 +240,7 @@ fn set_temp_envs() -> Result<(), Error> {
     if let Some(dyld) = env::var_os("DYLD_LIBRARY_PATH") {
         let mut libs = env::split_paths(&dyld).collect::<Vec<_>>();
         libs.push(lib);
-        let new_dyld = env::join_paths(libs)
-            .map_err(|_|Error::FailedSetEnvVar)?;
+        let new_dyld = env::join_paths(libs).map_err(|_| Error::FailedSetEnvVar)?;
         env::set_var("DYLD_LIBRARY_PATH", &new_dyld);
     }
 
@@ -255,10 +266,34 @@ fn set_temp_envs() -> Result<(), Error> {
     Ok(())
 }
 
+fn get_current_path() -> Option<Vec<PathBuf>> {
+    Command::new("bash")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .ok()
+        .and_then(|mut output| {
+            output
+                .stdin
+                .as_mut()
+                .and_then(|stdin| {
+                    stdin
+                        .write_all(b"source ~/.bash_profile\n")
+                        .ok()
+                        .and_then(|_| stdin.write_all(b"echo $PATH").ok())
+                })
+                .and_then(|_| {
+                    output.wait_with_output().ok().map(|output| {
+                        let path = String::from_utf8_lossy(&output.stdout);
+                        env::split_paths(&path.trim()).collect::<Vec<_>>()
+                    })
+                })
+        })
+}
+
 // Is the default sdk directory empty
 fn check_sdk_dir() -> Result<bool, Error> {
-    let mut sdk_dir = dirs::home_dir()
-        .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
+    let mut sdk_dir = dirs::home_dir().ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
     sdk_dir.push(".vulkan_sdk");
     Ok(sdk_dir.exists())
 }
@@ -266,29 +301,28 @@ fn check_sdk_dir() -> Result<bool, Error> {
 // Is the VULKAN_SDK variable pointing at
 // the default location and is that location empty.
 fn is_default_dir_and_empty(vulkan_sdk: String) -> Result<bool, Error> {
-    let mut default_dir = dirs::home_dir()
-        .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
+    let mut default_dir = dirs::home_dir().ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
     default_dir.push(".vulkan_sdk");
     default_dir.push("macOS");
     Ok(vulkan_sdk == default_dir.to_string_lossy() && !default_dir.exists())
 }
 
 fn default_lib_dir() -> Result<PathBuf, Error> {
-    let mut lib_dir = dirs::home_dir()
-        .ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
+    let mut lib_dir = dirs::home_dir().ok_or(Error::IO(io::ErrorKind::NotFound.into()))?;
     lib_dir.push(".vulkan_sdk");
     lib_dir.push("macOS");
     lib_dir.push("lib");
     lib_dir.push("libvulkan.1.dylib");
     Ok(lib_dir)
-
 }
 
 impl Default for Message {
     fn default() -> Self {
         let question = Box::new(|| {
             println!("Vulkano requires the Vulkan SDK to use MoltenVK for MacOS");
-            println!("The SDK will now be downloaded and environment variables added to .bash_profile");
+            println!(
+                "The SDK will now be downloaded and environment variables added to .bash_profile"
+            );
             true
         });
         let mut bar = ProgressBar::new(FILE_SIZE as u64);
@@ -313,7 +347,6 @@ impl Default for Message {
     }
 }
 
-
 /// This will check if you have the
 /// Vulkan SDK installed by checking
 /// if the VULKAN_SDK env var is set.
@@ -337,8 +370,8 @@ pub fn check_or_install(install: Install) -> Result<PathBuf, Error> {
                 // Return silently.
                 return Err(Error::NonDefaultDir);
             }
-        },
-        Err(_) =>{
+        }
+        Err(_) => {
             // Environment Variables are not set
             // but might just need to be set temporarily.
             if check_sdk_dir()? {
@@ -347,21 +380,20 @@ pub fn check_or_install(install: Install) -> Result<PathBuf, Error> {
                 return Err(Error::ResetEnvVars(default_lib_dir()?));
             }
             // Vulkan SDK needs to be installed
-        },
+        }
     }
 
     match install {
-        Install::Silent =>{
+        Install::Silent => {
             let sdk = SDK::download()?;
             sdk.unpack()?;
             set_env_vars()?;
-        },
+        }
         Install::Message(mut message) => {
             {
                 PROGRESS_FUNCTION.lock().unwrap().pf = message.progress;
             }
             if (message.question)() {
-
                 let sdk = SDK::download()?;
                 (message.unpacking)();
                 sdk.unpack()?;
@@ -371,7 +403,7 @@ pub fn check_or_install(install: Install) -> Result<PathBuf, Error> {
             } else {
                 return Err(Error::ChoseNotToInstall);
             }
-        },
+        }
     }
 
     Ok(default_lib_dir()?)
